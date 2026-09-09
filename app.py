@@ -30,6 +30,8 @@ if "cards_generated" not in st.session_state:
     st.session_state.cards_generated = False
 if "pdf_ready" not in st.session_state:
     st.session_state.pdf_ready = None
+if "forms_pdf_ready" not in st.session_state:
+    st.session_state.forms_pdf_ready = None
 
 
 def run_stage(label, generator_func, **kwargs):
@@ -149,7 +151,7 @@ with tab_fetch:
         show_review_grid()
 
 with tab_generate:
-    st.write("Composites photo, signature, and data onto the official card templates.")
+    st.write("Composites photo, signature, and data onto the official card templates, plus the printed request form.")
     st.caption("Rows already printed in a previous run are skipped automatically, unless forced above.")
     if st.button("Generate Cards", type="primary", use_container_width=True, disabled=not st.session_state.df_loaded):
         reprint_ids = {s.strip() for s in reprint_ids_raw.split(",") if s.strip()}
@@ -176,6 +178,30 @@ with tab_export:
             "\u2b07 Download PDF",
             data=pdf_bytes,
             file_name=archive_path.name,
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
+        if pipe.SHARED_PRINT_DIR:
+            st.caption(f"Also copied to the shared folder for the printer PC: `{pipe.SHARED_PRINT_DIR}`")
+
+    st.divider()
+    st.write("Combines this run's request forms into one print-ready PDF.")
+    if st.button("Export Request Forms PDF", type="primary", use_container_width=True, disabled=not st.session_state.cards_generated):
+        result = run_stage("Exporting request forms PDF", pipe.export_forms_pdf)
+        st.session_state.forms_pdf_ready = result
+
+    if not st.session_state.cards_generated:
+        st.caption(":gray[Generate cards first.]")
+
+    if st.session_state.forms_pdf_ready and st.session_state.forms_pdf_ready[0]:
+        forms_pdf_bytes, forms_archive_path = st.session_state.forms_pdf_ready
+        st.divider()
+        st.success(f"Ready: **{forms_archive_path.name}**")
+        st.download_button(
+            "\u2b07 Download Request Forms PDF",
+            data=forms_pdf_bytes,
+            file_name=forms_archive_path.name,
             mime="application/pdf",
             type="primary",
             use_container_width=True,

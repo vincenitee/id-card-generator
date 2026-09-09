@@ -49,6 +49,7 @@ SIGNATURES_DIR = BASE_DIR / "signatures"
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_CARDS_DIR = OUTPUT_DIR / "cards"          # timestamped card PNGs land here
 OUTPUT_PRINTABLES_DIR = OUTPUT_DIR / "printables"  # kept for compatibility, currently unused for saving
+OUTPUT_FORMS_DIR = OUTPUT_DIR / "forms"          # request form PNGs + PDF land here
 
 FONT_DIR = BASE_DIR / "fonts"
 MODELS_DIR = BASE_DIR / "models"
@@ -66,7 +67,7 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1_GKJPfENYbBNBoz11J-eYmQquKm
 MAX_WORKERS = 8
 PLACEHOLDER_ID = "EMBB-000-0000"
 
-for _d in [DATA_DIR, PHOTOS_DIR, SIGNATURES_DIR, OUTPUT_DIR, OUTPUT_CARDS_DIR, OUTPUT_PRINTABLES_DIR, MODELS_DIR]:
+for _d in [DATA_DIR, PHOTOS_DIR, SIGNATURES_DIR, OUTPUT_DIR, OUTPUT_CARDS_DIR, OUTPUT_PRINTABLES_DIR, OUTPUT_FORMS_DIR, MODELS_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -451,13 +452,28 @@ FRONT_LAYOUT = {
 }
 
 BACK_LAYOUT = {
-    "address": (64, 340),
-    "gsis": (337, 340),
-    "tin": (64, 420),
-    "blood_type": (337, 420),
-    "emergency_contact_person": (64, 553),
-    "emergency_contact_number": (334, 553),
+    "address": (64, 100),
+    "gsis": (337, 100),
+    "tin": (64, 170),
+    "blood_type": (337, 170),
+    "date_field": (64, 220),
+    "emergency_contact_person": (64, 383),
+    "emergency_contact_number": (334, 383),
     "signature_box": (150, 815, 495, 925),
+}
+
+REQUEST_FORM_LAYOUT = {
+    "date": (2160, 525),
+    "name": (940, 720),
+    "position": (940, 820),
+    "address": (940, 920),
+    "tin": (940, 1080),
+    "gsis": (940, 1170),
+    "blood_type": (940, 1260),
+    "emergency_contact": (940, 1390),
+    "signature_box": (925, 1585, 2355, 1870),
+    "photo_2x2_box": (940, 1910, 1539, 2500),
+    "photo_1x1_box": (1660, 2070, 1955, 2373),
 }
 
 
@@ -504,9 +520,62 @@ def build_back_card(row, signature, template_path=None):
     draw.text(BACK_LAYOUT["emergency_contact_person"], str(row["emergency_contact_person"]), font=font_regular(19), fill=(255, 255, 255))
     draw.text(BACK_LAYOUT["emergency_contact_number"], str(row["emergency_contact_number"]), font=font_regular(19), fill=(255, 255, 255))
 
+    employee_type = str(row.get("employee_type", "")).strip().upper()
+    if employee_type == "OJT":
+        date_label = "VALID UNTIL"
+        date_value = str(row.get("valid_until", "N/A"))
+    else:  # REGULAR or JOB ORDER
+        date_value = row.get("date_submitted", "N/A")
+        date_label = "DATE OF ISSUANCE"
+        date_value = date_value.strftime("%B %d, %Y") if hasattr(date_value, "strftime") else str(date_value)
+
+    dx, dy = BACK_LAYOUT["date_field"]
+    draw.text((dx, dy), f"{date_label}:", font=font_bold(16), fill=(255, 255, 255))
+    draw.text((dx, dy + 20), date_value, font=font_regular(19), fill=(255, 255, 255))
+
     if signature:
         sx0, sy0, sx1, sy1 = BACK_LAYOUT["signature_box"]
         sig = fit_resize(signature, sx1 - sx0, sy1 - sy0)  # enlarges small signatures too, per your call
+        px, py = sx0 + ((sx1 - sx0) - sig.width) // 2, sy0 + ((sy1 - sy0) - sig.height) // 2
+        card.paste(sig, (px, py), sig if sig.mode == "RGBA" else None)
+
+    return card
+
+
+def build_request_form(row, photo, signature, template_path=None):
+    template_path = template_path or (TEMPLATE_DIR / "request_form.jpg")
+    card = Image.open(template_path).convert("RGB")
+    draw = ImageDraw.Draw(card)
+    BLACK = (0, 0, 0)
+
+    date_value = row.get("date_submitted", "N/A")
+    date_str = date_value.strftime("%m/%d/%Y") if hasattr(date_value, "strftime") else str(date_value)
+    draw.text(REQUEST_FORM_LAYOUT["date"], date_str, font=font_semibold(35), fill=BLACK)
+
+    draw.text(REQUEST_FORM_LAYOUT["name"], str(row["full_name"]), font=font_semibold(38), fill=BLACK)
+    draw.text(REQUEST_FORM_LAYOUT["position"], str(row["position"]), font=font_semibold(38), fill=BLACK)
+
+    ax, ay = REQUEST_FORM_LAYOUT["address"]
+    for i, line in enumerate(wrap_text(str(row["address"]), font_semibold(38), 1400, draw)):
+        draw.text((ax, ay + i * 36), line, font=font_semibold(38), fill=BLACK)
+
+    draw.text(REQUEST_FORM_LAYOUT["tin"], str(row["tin"]), font=font_semibold(38), fill=BLACK)
+    draw.text(REQUEST_FORM_LAYOUT["gsis"], str(row["gsis"]), font=font_semibold(38), fill=BLACK)
+    draw.text(REQUEST_FORM_LAYOUT["blood_type"], str(row["blood_type"]), font=font_semibold(38), fill=BLACK)
+
+    emergency_text = f"{row['emergency_contact_person']} / {row['emergency_contact_number']}"
+    draw.text(REQUEST_FORM_LAYOUT["emergency_contact"], emergency_text, font=font_semibold(38), fill=BLACK)
+
+    if photo:
+        x0, y0, x1, y1 = REQUEST_FORM_LAYOUT["photo_2x2_box"]
+        card.paste(cover_resize(photo, x1 - x0, y1 - y0), (x0, y0))
+
+        x0, y0, x1, y1 = REQUEST_FORM_LAYOUT["photo_1x1_box"]
+        card.paste(cover_resize(photo, x1 - x0, y1 - y0), (x0, y0))
+
+    if signature:
+        sx0, sy0, sx1, sy1 = REQUEST_FORM_LAYOUT["signature_box"]
+        sig = fit_resize(signature, sx1 - sx0, sy1 - sy0)
         px, py = sx0 + ((sx1 - sx0) - sig.width) // 2, sy0 + ((sy1 - sy0) - sig.height) // 2
         card.paste(sig, (px, py), sig if sig.mode == "RGBA" else None)
 
@@ -525,6 +594,7 @@ EXPECTED_RAW_COLUMNS = [
     "TIN NUMBER (if any)", "GSIS NUMBER (if any)", "BLOOD TYPE",
     "EMERGENCY CONTACT PERSON", "EMERGENCY CONTACT NUMBER",
     "E-SIGNATURE", "ID PICTURE", "EMPLOYEE TYPE",
+    "EXPECTED DATE OF COMPLETION",
 ]
 
 
@@ -543,6 +613,7 @@ def fetch_data(force_full_reprocess=False):
 
     df = df.rename(columns={
         "Timestamp": "date_submitted", "ID NUMBER": "id_number", "FULL NAME": "full_name",
+        "EXPECTED DATE OF COMPLETION": "valid_until",
         "POSITION": "position", "HOME ADDRESS": "address", "TIN NUMBER (if any)": "tin",
         "GSIS NUMBER (if any)": "gsis", "BLOOD TYPE": "blood_type",
         "EMERGENCY CONTACT PERSON": "emergency_contact_person",
@@ -643,10 +714,12 @@ def generate_cards(force_reprint_all=False, force_reprint_ids=None):
 
         front = build_front_card(row, photo)
         back = build_back_card(row, signature)
+        request_form = build_request_form(row, photo, signature)
 
         safe_id = str(id_num).replace("/", "-")
         front.save(OUTPUT_CARDS_DIR / f"{safe_id}_front_{run_timestamp}.png", dpi=(300, 300))
         back.save(OUTPUT_CARDS_DIR / f"{safe_id}_back_{run_timestamp}.png", dpi=(300, 300))
+        request_form.save(OUTPUT_FORMS_DIR / f"{safe_id}_request_form_{run_timestamp}.png", dpi=(300, 300))
         generated += 1
         newly_printed.add(id_num)
         yield f"Generated: {row['full_name']} ({id_num})"
@@ -706,3 +779,49 @@ def export_pdf():
         yield f"Updated: {latest_path}"
 
     yield ("__RESULT__", pdf_bytes, archive_path)
+
+
+def export_forms_pdf():
+    """Stage 6b. Reads from OUTPUT_FORMS_DIR (matching where generate_cards
+    saves request forms) and bundles this run's forms into one PDF."""
+    df = _state["df"]
+    run_timestamp = _state["run_timestamp"]
+    if run_timestamp is None:
+        yield "No cards generated yet this session -- run Generate Cards first."
+        yield ("__RESULT__", None, None)
+        return
+
+    form_files = []
+    for _, row in df.iterrows():
+        id_num = row["id_number"]
+        if row.get("id_missing", False):
+            continue
+        safe_id = str(id_num).replace("/", "-")
+        form_path = OUTPUT_FORMS_DIR / f"{safe_id}_request_form_{run_timestamp}.png"
+        if form_path.exists():
+            form_files.append(form_path)
+
+    if not form_files:
+        yield "No request forms found for this run."
+        yield ("__RESULT__", None, None)
+        return
+
+    form_pdf_bytes = img2pdf.convert([str(p) for p in form_files])
+
+    form_archive_path = OUTPUT_FORMS_DIR / f"request_forms_{run_timestamp}.pdf"
+    with open(form_archive_path, "wb") as f:
+        f.write(form_pdf_bytes)
+    yield f"Saved: {form_archive_path} ({len(form_files)} pages)"
+
+    if SHARED_PRINT_DIR:
+        SHARED_PRINT_DIR.mkdir(parents=True, exist_ok=True)
+        form_shared_path = SHARED_PRINT_DIR / f"request_forms_{run_timestamp}.pdf"
+        with open(form_shared_path, "wb") as f:
+            f.write(form_pdf_bytes)
+        latest_form_path = SHARED_PRINT_DIR / "LATEST_request_forms.pdf"
+        with open(latest_form_path, "wb") as f:
+            f.write(form_pdf_bytes)
+        yield f"Also copied to shared folder: {form_shared_path}"
+        yield f"Updated: {latest_form_path}"
+
+    yield ("__RESULT__", form_pdf_bytes, form_archive_path)

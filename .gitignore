@@ -3,6 +3,7 @@ __pycache__/
 .ipynb_checkpoints/
 data/
 photos/
+signatures/
 output/
 credentials/
 *.xlsx
